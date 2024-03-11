@@ -36,16 +36,22 @@ A pure rust demo for p2tr address to inscripting brc20 with Signet.
   - https://signetfaucet.com/
   - https://alt.signetfaucet.com/
 
-- Get the unspent txid for your address
+- Get the unspent txid for your address and xpriv key
 
   ```shell
+  alice listdescriptors true
   alice listunspent
   ```
 
   Copy the unspent txid and replace `txid`'s value at line 46 in `src/main.rs`.
   Also change the args of `let unspent_amount = Amount::from_sat(701871);` at
   line 47 in `src/main.rs` to the amount of your unspent transaction, i.e. change
-  `701871` to the unspent amount in your transaction.
+  `701871` to the unspent amount in your transaction. Last, don't forget to
+  replace your own xpriv key at line 23 in `src/main.rs`. For more info about
+  xpriv, please refere to [descriptor][descriptor] and [bip32][bip32]
+
+[descriptor]: https://github.com/bitcoin/bitcoin/blob/master/doc/descriptors.md
+[bip32]: https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki
 
 - Run the program
   ```shell
