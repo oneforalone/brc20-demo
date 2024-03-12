@@ -106,8 +106,6 @@ pub fn build_reveal_tx<C: Signing + Verification>(
     let pubkey = sk.public_key(secp);
     let txid = commit_tx.txid();
 
-    let merkle_root = inscription.spend_info().merkle_root().unwrap();
-
     let preoutpoint = OutPoint { txid, vout: 0 };
     let input = TxIn {
         previous_output: preoutpoint,
@@ -127,6 +125,7 @@ pub fn build_reveal_tx<C: Signing + Verification>(
         output: vec![spend],
     };
 
+    let merkle_root = inscription.spend_info().merkle_root().unwrap();
     let prevout = TxOut {
         value: Amount::from_sat(DUST_AMOUNT),
         script_pubkey: ScriptBuf::new_p2tr(secp, pubkey.into(), Some(merkle_root)),
@@ -156,6 +155,7 @@ pub fn taproot_sign<C: Signing + Verification>(
     taproot_script: Option<ScriptBuf>,
 ) -> Transaction {
     let keypair = Keypair::from_secret_key(secp, sk);
+
     let prevouts = Prevouts::All(prevouts);
     let sighash_type = TapSighashType::Default;
     let input_index = 0;
