@@ -93,7 +93,7 @@ pub fn build_commit_tx<C: Signing + Verification>(
         &[prevout],
         &mut unsigned_tx,
         TaprootSpendingType::KeyPath,
-        Some(inscription.taproot_program().to_owned()),
+        None,
     )
 }
 
