@@ -8,9 +8,9 @@ use crate::inscription::OrdinalsInscription;
 pub struct Brc20Ticker(String);
 
 impl Brc20Ticker {
-    pub fn new(string: String) -> Result<Self> {
+    pub fn new(string: String) -> Result<Self, Box<dyn std::error::Error>> {
         if string.len() != 4 {
-            anyhow::bail!("Invalid brc20 ticker");
+            return Err("Invalid brc20 ticker".into());
         }
 
         Ok(Brc20Ticker(string))

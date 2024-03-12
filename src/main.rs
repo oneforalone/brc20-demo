@@ -27,7 +27,7 @@ fn main() {
     // https://mempool.space/signet/tx/a7babed711f5caf527bfdd798aba3a8baa712f34db352a6373bc1539f0998388
     let commit_tx = build_commit_tx(&secp, &sk, unspent, &ins, feerate);
 
-    eprintln!("\n Commit Transaction \n");
+    eprintln!("\nCommit Transaction \n");
     eprintln!("Transaction ID: {}", commit_tx.txid());
 
     eprintln!(
@@ -40,7 +40,7 @@ fn main() {
     // https://mempool.space/signet/tx/0b9e5385023b27363033459dc5a33eb9199a758f45a055726705790811bf72b0
     let reveal_tx = build_reveal_tx(&secp, &sk, &commit_tx, &ins);
 
-    eprintln!("\n Reveal Transaction\n");
+    eprintln!("\nReveal Transaction\n");
     eprintln!("Transaction ID: {}", reveal_tx.txid());
     eprintln!(
         "Raw Transaction: {}",

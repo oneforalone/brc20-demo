@@ -4,7 +4,7 @@ use bitcoin::hashes::Hash;
 use bitcoin::key::{Keypair, TapTweak};
 use bitcoin::secp256k1::{Message, Secp256k1, SecretKey, Signing, Verification};
 use bitcoin::sighash::{Prevouts, SighashCache, TapSighashType};
-use bitcoin::taproot::{LeafVersion, Signature};
+use bitcoin::taproot::{LeafVersion, Signature, TaprootBuilder};
 use bitcoin::{
     absolute, transaction, Amount, OutPoint, ScriptBuf, Sequence, TapLeafHash, Transaction, TxIn,
     TxOut, Txid, Witness, XOnlyPublicKey,
@@ -37,7 +37,6 @@ pub fn build_commit_tx<C: Signing + Verification>(
     inscription: &OrdinalsInscription,
     feerate: u64,
 ) -> Transaction {
-
     let pubkey = sk.public_key(secp);
     // TODO: need to ajust with the vout for other txs
     let txid = unspent.txid;
@@ -88,7 +87,14 @@ pub fn build_commit_tx<C: Signing + Verification>(
         output: vec![spend, change],
     };
 
-    taproot_key_path_sign(secp, sk, &[prevout], &mut unsigned_tx)
+    taproot_sign(
+        secp,
+        sk,
+        &[prevout],
+        &mut unsigned_tx,
+        TaprootSpendingType::KeyPath,
+        Some(inscription.taproot_program().to_owned()),
+    )
 }
 
 pub fn build_reveal_tx<C: Signing + Verification>(
@@ -97,8 +103,6 @@ pub fn build_reveal_tx<C: Signing + Verification>(
     commit_tx: &Transaction,
     inscription: &OrdinalsInscription,
 ) -> Transaction {
-
-
     let pubkey = sk.public_key(secp);
     let txid = commit_tx.txid();
 
@@ -128,79 +132,85 @@ pub fn build_reveal_tx<C: Signing + Verification>(
         script_pubkey: ScriptBuf::new_p2tr(secp, pubkey.into(), Some(merkle_root)),
     };
 
-    taproot_script_path_sign(secp, sk, &[prevout], &mut unsigned_tx, inscription)
+    taproot_sign(
+        secp,
+        sk,
+        &[prevout],
+        &mut unsigned_tx,
+        TaprootSpendingType::ScriptPath,
+        Some(inscription.taproot_program().to_owned()),
+    )
 }
 
-// TODO: merge two taproot sign function to one
-pub fn taproot_key_path_sign<C: Signing + Verification>(
+pub enum TaprootSpendingType {
+    KeyPath,
+    ScriptPath,
+}
+
+pub fn taproot_sign<C: Signing + Verification>(
     secp: &Secp256k1<C>,
     sk: &SecretKey,
     prevouts: &[TxOut],
     tx: &mut Transaction,
+    taproot_type: TaprootSpendingType,
+    taproot_script: Option<ScriptBuf>,
 ) -> Transaction {
     let keypair = Keypair::from_secret_key(secp, sk);
-    let sighash_type = TapSighashType::Default;
     let prevouts = Prevouts::All(prevouts);
-
-    let input_index = 0;
-    let mut sighasher = SighashCache::new(tx);
-    let sighash = sighasher
-        .taproot_key_spend_signature_hash(input_index, &prevouts, sighash_type)
-        .expect("failed  to construct sighash");
-
-    let tweaked = keypair.tap_tweak(secp, None);
-
-    let msg = Message::from_digest(sighash.to_byte_array());
-    let sig = secp.sign_schnorr(&msg, &tweaked.to_inner());
-
-    let signature = Signature {
-        sig,
-        hash_ty: sighash_type,
-    };
-    *sighasher.witness_mut(input_index).unwrap() = Witness::from_slice(&[&signature.to_vec()]);
-
-    sighasher.into_transaction().to_owned()
-}
-
-pub fn taproot_script_path_sign<C: Signing + Verification>(
-    secp: &Secp256k1<C>,
-    sk: &SecretKey,
-    prevouts: &[TxOut],
-    tx: &mut Transaction,
-    inscription: &OrdinalsInscription,
-) -> Transaction {
-    let keypair = Keypair::from_secret_key(secp, sk);
     let sighash_type = TapSighashType::Default;
-    let prevouts = Prevouts::All(prevouts);
-    let script = inscription.taproot_program().to_owned();
-    let control_block = inscription
-        .spend_info()
-        .control_block(&(script.to_owned(), LeafVersion::TapScript))
-        .unwrap();
-
     let input_index = 0;
-    let mut sighasher = SighashCache::new(tx);
-    let sighash = sighasher
-        .taproot_script_spend_signature_hash(
-            input_index,
-            &prevouts,
-            TapLeafHash::from_script(&script, LeafVersion::TapScript),
-            sighash_type,
-        )
-        .expect("failed to construct sighash");
-    let msg = Message::from_digest(sighash.to_byte_array());
-    let sig = secp.sign_schnorr(&msg, &keypair);
-    let signature = Signature {
-        sig,
-        hash_ty: sighash_type,
+
+    let mut sighash_cache = SighashCache::new(tx);
+    let witness = match taproot_type {
+        TaprootSpendingType::KeyPath => {
+            let sighash = sighash_cache
+                .taproot_key_spend_signature_hash(input_index, &prevouts, sighash_type)
+                .expect("Failed to construct sighash");
+            let msg = Message::from_digest(sighash.to_byte_array());
+            let tweaked = keypair.tap_tweak(secp, None);
+            let sig = secp.sign_schnorr(&msg, &tweaked.to_inner());
+            let sig = Signature {
+                sig,
+                hash_ty: sighash_type,
+            };
+            Witness::from_slice(&[&sig.to_vec()])
+        }
+        TaprootSpendingType::ScriptPath => {
+            let script = taproot_script.as_ref().unwrap().to_owned();
+            let sighash = sighash_cache
+                .taproot_script_spend_signature_hash(
+                    input_index,
+                    &prevouts,
+                    TapLeafHash::from_script(&script, LeafVersion::TapScript),
+                    sighash_type,
+                )
+                .expect("Failed to construct sighash");
+            let msg = Message::from_digest(sighash.to_byte_array());
+            let sig = secp.sign_schnorr(&msg, &keypair);
+            let sig = Signature {
+                sig,
+                hash_ty: sighash_type,
+            };
+
+            let mut witness = Witness::new();
+            witness.push(sig.to_vec());
+            witness.push(script.as_bytes());
+
+            let spend_info = TaprootBuilder::new()
+                .add_leaf(0, script.clone())
+                .expect("Taproot Spending info build error")
+                .finalize(secp, XOnlyPublicKey::from_keypair(&keypair).0)
+                .expect("Taproot Spending info build failed");
+
+            let contronl_block = spend_info
+                .control_block(&(script.to_owned(), LeafVersion::TapScript))
+                .unwrap();
+
+            witness.push(contronl_block.serialize());
+            witness
+        }
     };
 
-    let mut witness = Witness::new();
-    witness.push(signature.to_vec());
-    witness.push(script.as_bytes());
-    witness.push(control_block.serialize());
-
-    *sighasher.witness_mut(input_index).unwrap() = witness;
-
-    sighasher.into_transaction().to_owned()
+    *sighash_cache.witness_mut(input_index).unwrap() = witness;
+    sighash_cache.into_transaction().to_owned()
 }
