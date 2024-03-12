@@ -11,9 +11,10 @@ pub mod brc20;
 pub mod inscription;
 pub mod signer;
 
+#[allow(unused_imports)]
 use signer::{segwit_ecdsa_sign, taproot_schnorr_sign, TaprootSpendingType};
 
-const REVEAL_TX_SIZE: u64 = 141;
+const REVEAL_TX_SIZE: u64 = 150;
 const DUST_AMOUNT: u64 = 546;
 
 pub struct Unspent {
@@ -47,6 +48,11 @@ pub fn build_commit_tx<C: Signing + Verification>(
         sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
         witness: Witness::default(),
     };
+    let unspent_value = unspent.value;
+    let prevout = TxOut {
+        value: unspent_value,
+        script_pubkey: ScriptBuf::new_p2tr(secp, pubkey.into(), None),
+    };
 
     let spend_amount = DUST_AMOUNT + feerate * REVEAL_TX_SIZE;
     let spend_amount = Amount::from_sat(spend_amount);
@@ -57,24 +63,28 @@ pub fn build_commit_tx<C: Signing + Verification>(
     };
 
     let mut change = TxOut {
-        value: Amount::from_sat(0),
+        value: Amount::from_sat(DUST_AMOUNT),
         script_pubkey: ScriptBuf::new_p2tr(secp, pubkey.into(), None),
     };
 
-    let unspent_value = unspent.value;
-    let prevout = TxOut {
-        value: unspent_value,
-        script_pubkey: ScriptBuf::new_p2tr(secp, pubkey.into(), None),
-    };
-
-    let tmp_tx = Transaction {
+    let mut tmp_tx = Transaction {
         version: transaction::Version::TWO,
         lock_time: absolute::LockTime::ZERO,
         input: vec![input.clone()],
         output: vec![spend.clone(), change.clone()],
     };
 
-    let txfee = Amount::from_sat(tmp_tx.vsize() as u64 * feerate);
+    let pre_sign_tx = taproot_schnorr_sign(
+        secp,
+        sk,
+        &[prevout.clone()],
+        &mut tmp_tx,
+        TaprootSpendingType::KeyPath,
+        None,
+    );
+
+    let txfee = Amount::from_sat(pre_sign_tx.vsize() as u64 * feerate);
+
     change.value = unspent_value
         .checked_sub(spend_amount.checked_add(txfee).unwrap())
         .unwrap();

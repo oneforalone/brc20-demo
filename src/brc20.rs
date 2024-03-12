@@ -19,7 +19,7 @@ impl Brc20Ticker {
 
 #[derive(Debug, Default, Serialize)]
 pub struct Brc20 {
-    #[serde(rename = "p", default = "brc20")]
+    #[serde(rename = "p")]
     protocol: String,
     #[serde(rename = "op")]
     operation: String,
@@ -34,10 +34,10 @@ impl Brc20 {
 
     pub fn new(op: String, ticker: String, value: String) -> Self {
         Brc20 {
+            protocol: "brc-20".to_owned(),
             operation: op,
             ticker: Brc20Ticker::new(ticker).unwrap(),
             amount: value,
-            ..Default::default()
         }
     }
 
